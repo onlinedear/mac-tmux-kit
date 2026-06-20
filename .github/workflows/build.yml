@@ -1,0 +1,64 @@
+name: Build
+
+# Compiles MacTmuxKit.app on GitHub-hosted macOS runners — zero local disk usage.
+# Produces an unsigned (ad-hoc) .app that runs on the owner's own Macs.
+# Distributing to OTHER people's Macs needs a Developer ID cert + notarization
+# (see scripts/release.sh); that path stays local for now.
+#
+# Triggers:
+#   - push to main / feature branches   (keeps the latest build fresh)
+#   - manual "Run workflow" button       (one-off builds on demand)
+#   - version tags v*                    (pins a downloadable release build)
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Cancel a superseded run on the same ref so we don't burn runner minutes.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # Regenerate .xcodeproj from project.yml (the checked-in .xcodeproj is
+      # git-ignored, so the runner must rebuild it).
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build (Release)
+        run: |
+          xcodebuild -project MacTmuxKit.xcodeproj -scheme MacTmuxKit \
+            -configuration Release -derivedDataPath build \
+            build CODE_SIGNING_ALLOWED=NO
+
+      - name: Zip the .app
+        run: |
+          cd build/Build/Products/Release
+          /usr/bin/ditto -c -k --keepParent MacTmuxKit.app MacTmuxKit.zip
+
+      # Upload as a workflow artifact (downloadable from the Actions tab for 90 days).
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacTmuxKit-app
+          path: build/Build/Products/Release/MacTmuxKit.zip
+          retention-days: 90
+
+      # On a version tag, also publish a GitHub Release with the .app attached.
+      - name: Attach to Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Build/Products/Release/MacTmuxKit.zip
