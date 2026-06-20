@@ -22,7 +22,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-15 ships Xcode 16, which reads the objectVersion 77 project format
+    # that current XcodeGen emits (XcodeGen pins objectVersion to its own build,
+    # not to project.yml, so we must match the runner's Xcode to it).
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
